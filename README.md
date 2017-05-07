@@ -1,2 +1,2 @@
-# shapes
-boxes, torii, and sphere points
+# mdl
+make run -> robot man
