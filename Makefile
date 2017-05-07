@@ -1,5 +1,8 @@
 run:
-	python transform.py < csscript
+	python script.py script.mdl
+
+g:
+	python script.py gscript.mdl
 
 margif:
 	python triangle.py

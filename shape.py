@@ -14,7 +14,7 @@ def genBoxPoints(x, y, z, w, h, d):
     for i in range(8):
         xcor = x + (i >> 2) * w
         ycor = y - (i >> 1) % 2 * h
-        zcor = z - i % 2 * d
+        zcor = z - d + i % 2 * d
         pts.append([xcor, ycor, zcor])
     return pts
 
@@ -56,10 +56,12 @@ def genSpherePoints(x, y, z, r, step=0.02):
     pts = []
     steps = int(math.ceil(1 / step))
     for theta in range(steps):
+        theps = theta * 2 * math.pi / steps
         for phi in range(steps):
-            xcor = x + r * math.sin(phi * math.pi / (steps - 1)) * math.cos(theta * 2 * math.pi / steps)
-            ycor = y + r * math.sin(phi * math.pi / (steps - 1)) * math.sin(theta * 2 * math.pi / steps)
-            zcor = z + r * math.cos(phi * math.pi / (steps - 1))
+            pheps = phi * math.pi / (steps - 1)
+            xcor = x + r * math.sin(pheps) * math.cos(theps)
+            ycor = y + r * math.sin(pheps) * math.sin(theps)
+            zcor = z + r * math.cos(pheps)
             pts.append([xcor, ycor, zcor])
     return pts
 

@@ -13,47 +13,73 @@ import math
 from common import *
 from triangle import triangle
 
+
+def drawEdges(m, image, color=(0, 0, 0)):  # draws the edges to an image
+    for i in range(0, len(m[0]) - 1, 2):
+        lin = line(m[0][i], m[1][i], m[0][i + 1], m[1][i + 1])
+        coloredlin = [xy + (color,) for xy in lin]
+        image.setPixels(coloredlin)
+
+def drawTriangles(m, image, wireframe=False, color=(255, 0, 0), bordercol=(0, 0, 0), hasBorder=True, culling=True):
+    triangles = []
+    for i in range(0, len(m[0]) - 2, 3):
+        triangles.append([m[0][i], m[1][i], m[0][i + 1], m[1][i + 1], m[0][i + 2], m[1][i + 2], m[2][i], m[2][i + 1], m[2][i + 2]])
+    ordTris = sorted(triangles, key=lambda l: l[6]+l[7]+l[8])
+    for t in ordTris:
+        if culling:
+            x12 = t[0] - t[2]
+            y12 = t[1] - t[3]
+            x23 = t[0] - t[4]
+            y23 = t[1] - t[5]
+            if x12 * y23 - x23 * y12 <= 0:
+                continue
+        if not wireframe:
+            tri = triangle.triangle(*t[:6])
+            coloredtri = [xy + (color,) for xy in tri]
+        else:
+            coloredtri = []
+        if hasBorder:
+            border = line(*t[:4])
+            border.extend(line(*t[2:6]))
+            border.extend(line(*t[:2] + t[4:6]))
+            coloredtri += [xy + (bordercol,) for xy in border]
+            image.setPixels(coloredtri)
+
+
 def getBary(x,y,x1,y1,x2,y2,x3,y3,det):
     try:
         d1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det
         d2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det
+        if d1 < 0 or d2 < 0 or d1 + d2 > 1:
+            # print '({}, {}) not in ({}, {}), ({}, {}), ({}, {})'.format(x,y,x1,y1,x2,y2,x3,y3)
+            return 1, 0, 0
         return d1, d2, 1-d1-d2
-    except:
+    except ZeroDivisionError:
         return 1, 0, 0
 
-def drawTexturedTri(x1, y1, x2, y2, x3, y3, tx1, ty1, tx2, ty2, tx3, ty3, mat): #1-6 vertices, 7-12 tcors, 13 material
-    # TODO: rgb + bgcol -> mat, use mat to get shading stuff and use below code frag
-    '''if 'ambtexture' in mat:
-            rgbAmbient = getTexture(mat['ambtexture'], texcache)
-        else:
-            rgbAmbient = None
-        if 'difftexture' in mat:
-            rgbDiffuse = getTexture(mat['difftexture'], texcache)
-        else:
-            rgbDiffuse = None'''
-    a = time()
-    pts = []
-    l = len(rgb)-1
-    th = len(rgb) - 1
-    tw = len(rgb[0]) / 4 - 1
-    tri = triangle(x1,y1,x2,y2,x3,y3)
-    det = float((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3))
-    for x, y in tri:
-        d1,d2,d3=getBary(x, y, x1, y1, x2, y2, x3, y3, det)
-        tcx = tx1*d1+tx2*d2+tx3*d3
-        tcy = ty1*d1+ty2*d2+ty3*d3
-        # print tc[0], tc[1]
-        if 1>=tcx>=0 and 1>=tcy>=0:
-            xcor = int(tcx*tw)*4
-            ycor = int(tcy*th)
-            if rgb[l-ycor][xcor + 3] == 255:
-                shade = shader(d1,d2,d3,n1x,n1y,n2x,n2y,n3x,n3y,col,Ka,Kd,Ks)
-                pts.append((x, y, rgb[l-ycor][xcor:xc    or+3]))
-        else:
-            pts.append((x, y, bgcol))
-    return pts
 
-def renderTriangle(p1, p2, p3, mat, vx, vy, vz, lights, texcache, zbuf):
+def phongShader(x,y,z,nx,ny, nz,lights, vx,vy,vz,Ka, Kd, Ks,a):
+    Vx, Vy, Vz = normalize(vx-x,vy-y,vz-z)
+    c = [0,0,0]
+    for l in lights:
+        Lmx , Lmy, Lmz = normalize(l.x-x,l.y-y,l.z-z)
+        Lmn = Lmx * nx + Lmy * ny + Lmz * nz
+        Rmx = 2 * Lmn * nx - Lmx
+        Rmy = 2 * Lmn * ny - Lmy
+        Rmz = 2 * Lmn * nz - Lmz    
+        diff = max(Lmn, 0)
+        try:
+            spec = max((Rmx*Vx+Rmy*Vy+Rmz*Vz), 0)**a
+        except:
+            spec = 1 
+        for i in xrange(3):
+            c[i] += Ka[i]*l.Ia[i] + Kd[i]*l.Id[i]*diff + Ks[i]*l.Is[i]*spec
+    for i in xrange(3):
+        c[i] = min(int(c[i]), 65535) / 256
+    return c
+
+
+def renderTriangle(p1, p2, p3, mat, vx, vy, vz, lights, texcache, zbuf, shader=phongShader):
     tri = triangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
     det = float((p2.y - p3.y) * (p1.x - p3.x) + (p3.x - p2.x) * (p1.y - p3.y))
     pts = []
@@ -79,7 +105,13 @@ def renderTriangle(p1, p2, p3, mat, vx, vy, vz, lights, texcache, zbuf):
         if zbuf[y][x] >= z:
             continue
         #print 'not buffed'
+
+        nz = p1.nz * d1 + p2.nz * d2 + p3.nz * d3
+        if nz <= 0:
+            continue
         zbuf[y][x] = z
+        nx = p1.nx * d1 + p2.nx * d2 + p3.nx * d3
+        ny = p1.ny * d1 + p2.ny * d2 + p3.ny * d3
         Ka = mat.amb.col
         Kd = mat.diff.col
         Ks = mat.spec.col
@@ -101,69 +133,10 @@ def renderTriangle(p1, p2, p3, mat, vx, vy, vz, lights, texcache, zbuf):
                     xcor = int(tcx*specw)*4
                     ycor = int(tcy*spech)
                     Ks = spectex[spech-1-ycor][xcor : xcor + 3]
-        nx = p1.nx * d1 + p2.nx * d2 + p3.nx * d3
-        ny = p1.ny * d1 + p2.ny * d2 + p3.ny * d3
-        nz = p1.nz * d1 + p2.nz * d2 + p3.nz * d3
         col = shader(x, y, z, nx, ny, nz, lights, vx, vy, vz, Ka, Kd, Ks, mat.exp)
         pts.append((x, y, col))
     return pts
 
-def drawShadedTri(x1,y1,z1,x2,y2,z2,x3,y3,z3,nx1,ny1,nz1,nx2,ny2,nz2,nx3,ny3,nz3,lx,ly,lz,vx,vy,vz,Ia,Id,Is,Ka,Kd,Ks,a,zbuf):
-    pts = []
-    tri = triangle(x1,y1,x2,y2,x3,y3)
-    det = float((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1\
- - y3))
-    for x, y in tri:
-        #print y, x
-        if not (0 <= x < 500 and 0 <= y < 500):
-            continue
-        d1,d2,d3=getBary(x, y, x1, y1, x2, y2, x3, y3, \
-det)
-        z = z1*d1+z2*d2+z3*d3
-        if zbuf[y][x] >= z:
-            #print 'buf pixf at %f for %f'%(z,zbuf[y][x])
-            continue
-        #else: print 'nein'
-        #if zbuf[y][x] is not None:
-        #    print 'do pixf at %f over %f'%(z,zbuf[y][x])
-        #else:
-        #    print 'new pixel', y, x
-        zbuf[y][x] = z
-        nz = nz1*d1+nz2*d2+nz3*d3
-        # if nz < 0:
-        #    pts.append((x,y,(0,0,0)))
-        #    continue
-        nx = nx1*d1+nx2*d2+nx3*d3
-        ny = ny1*d1+ny2*d2+ny3*d3
-        pts.append((x,y,shader(x,y,z,nx,ny, nz,lx,ly,lz, vx,vy,vz, Ia,Id,Is, Ka, Kd, Ks, a)))
-    return pts
-
-def normalize(*v):
-    v = list(v)
-    norm = math.sqrt(sum([i**2 for i in v]))
-    for i in xrange(len(v)):
-        v[i] /= norm
-    return v
-        
-def shader(x,y,z,nx,ny, nz,lights, vx,vy,vz,Ka, Kd, Ks,a):
-    Vx, Vy, Vz = normalize(vx-x,vy-y,vz-z)
-    c = [0,0,0]
-    for l in lights:
-        Lmx , Lmy, Lmz = normalize(l.x-x,l.y-y,l.z-z)
-        Lmn = Lmx * nx + Lmy * ny + Lmz * nz
-        Rmx = 2 * Lmn * nx - Lmx
-        Rmy = 2 * Lmn * ny - Lmy
-        Rmz = 2 * Lmn * nz - Lmz    
-        diff = max(Lmn, 0)
-        try:
-            spec = max((Rmx*Vx+Rmy*Vy+Rmz*Vz), 0)**a
-        except:
-            spec = 1 
-        for i in xrange(3):
-            c[i] += Ka[i]*l.Ia[i] + Kd[i]*l.Id[i]*diff + Ks[i]*l.Is[i]*spec
-    for i in xrange(3):
-        c[i] = min(int(c[i]), 65535) / 256
-    return c
 
 def getTexture(texture, texcache):
     if texture not in texcache:
@@ -172,27 +145,58 @@ def getTexture(texture, texcache):
         texcache[texture] = rgb
     return texcache[texture]
 
-def textureTriMtxs(obj, img, texcache):
-    mcols = [[]]*7
-    for m, t, mat in ms:
-        mcol = m + t + [[mat] * len(m[0])]
-        mcols = edgeMtx.addEdgeMtxs(mcols, mcol)
-    triangles = []
-    for i in range(0, len(mcols[0]) - 2, 3):
-        # print i, mcols[0][i], mcols[1][i], mcols[0][i + 1], mcols[1][i + 1], mcols[0][i + 2], mcols[1][i + 2], sum(mcols[2][i : i+3]), mcols[4][i]
-        triangles.append([mcols[0][i], mcols[1][i], mcols[0][i + 1], mcols[1][i + 1], mcols[0][i + 2], mcols[1][i + 2], sum(mcols[2][i : i+3]), mcols[4][i], mcols[5][i], mcols[4][i+1], mcols[5][i+1], mcols[4][i+2], mcols[5][i+2], mcols[6][i]])  # 14 els long
-    ordTris = sorted(triangles, key=lambda l: l[6])
-    times = 0
-    for t in ordTris:
-        a = time()
-        if t[13] is not None:  # todo shading w/ textures
-            img.setPixels(drawTexturedTri(*t[:6] + t[7:]))
-        else:  # todo shading w/o textures
-            tri = triangle(*t[:6])
-            coloredtri = [xy + (t[13],) for xy in tri]
-            img.setPixels(coloredtri)
-        times += time() - a
-    print times / 1.0 / len(ordTris) * 1000
+
+def drawObjects(objects, img):
+    for type, mtx in objects:
+        if type == EDGE:
+            drawEdges(mtx, img)
+        elif type == POLY:
+            drawTriangles(mtx, img, wireframe=True)
+
+
+def cross3d(v1x, v1y, v1z, v2x, v2y, v2z):
+    return [v1y*v2z - v1z*v2y, v1z*v2x - v1x*v2z, v1x*v2y - v1y*v2x]
+            
+
+def getPointsFromTriangles(m):  # assumes m is a poly mtx
+    for i in range(0, len(m[0]), 3):
+        v12x, v12y, v12z = tuple(m[n][i] - m[n][i+1] for n in range(3))
+        v23x, v23y, v23z = tuple(m[n][i+1] - m[n][i+2] for n in range(3))
+        v31x, v31y, v31z = tuple(m[n][i+2] - m[n][i] for n in range(3))
+        try:
+            n1 = normalizeList(cross3d(-v31x, -v31y, -v31z, v12x, v12y, v12z))
+            n2 = normalizeList(cross3d(-v12x, -v12y, -v12z, v23x, v23y, v23z))
+            n3 = normalizeList(cross3d(-v23x, -v23y, -v23z, v31x, v31y, v31z))
+        except ZeroDivisionError:
+            continue
+        yield (Point(m[0][i], m[1][i], m[2][i], n1[0], n1[1], n1[2], 0, 0), 
+               Point(m[0][i+1], m[1][i+1], m[2][i+1], n2[0], n2[1], n2[2], 0, 0), 
+               Point(m[0][i+2], m[1][i+2], m[2][i+2], n3[0], n3[1], n3[2], 0, 0))
+
+            
+dullWhite = Material(Texture(False, (255, 255, 255)), Texture(False, (255, 255, 255)), Texture(False, (150, 150, 150)), 10)
+niceLights = [
+    # Light(750, -3000, 750, (70, 65, 60), (200, 180, 160), (255, 230, 210)),  # sun at just past noon
+    Light(0, 500, 200, (0, 20, 60), (30, 100, 200), (50, 150, 255))  # cyan light to the left-top
+    ]
+
+def normMapShader(x, y, z, nx, ny, nz, *_):
+    return [int(nx * 127.5 + 127.5), int(ny * 127.5 + 127.5), int(nz * 127.5 + 127.5)]
+
+
+def drawObjectsNicely(objects, img, mat=dullWhite, V=(250, 250, 600), lights=niceLights, shader=phongShader):
+    zbuf = [[None] * 500 for _ in xrange(500)]
+    for type, mtx in objects:
+        if type == EDGE:
+            drawEdges(mtx, img)
+        elif type == POLY:
+            for pts in getPointsFromTriangles(mtx):
+                img.setPixels(renderTriangle(*pts + (mat,) + V + (lights, {}, zbuf), shader=shader))
+                # border = line(pts[0].x, pts[0].y, pts[1].x, pts[1].y)
+                # border += line(pts[1].x, pts[1].y, pts[2].x, pts[2].y)
+                # border += line(pts[2].x, pts[2].y, pts[0].x, pts[0].y)
+                # img.setPixels([i + ((255, 0, 0),) for i in border])
+
 
 def copyPoint(pt):
     return Point(pt.x, pt.y, pt.z, pt.nx, pt.ny, pt.nz, pt.tx, pt.ty)
